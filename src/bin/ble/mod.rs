@@ -3,6 +3,8 @@ use core::prelude::rust_2024::*;
 use defmt::panic;
 use trouble_host::prelude::*;
 
+use crate::read_battery;
+
 /// Max number of connections
 const CONNECTIONS_MAX: usize = 1;
 
@@ -15,18 +17,24 @@ const L2CAP_MTU: usize = 255;
 // GATT Server definition
 #[gatt_server]
 struct Server {
-    battery_service: TightenService,
+    tighten_service: TightenService,
+    battery_service: BatteryService,
 }
 
-/// Battery service
-#[gatt_service(uuid ="1953e703-82d4-4142-9efe-30a87538c7de")]
+#[gatt_service(uuid = "1953e703-82d4-4142-9efe-30a87538c7de")]
 struct TightenService {
-    /// Battery Level
+    /// Tightening amount (-1 = loosening, 0 = stop, 1 = tightening)
     #[characteristic(uuid = "45803b5a-8847-465b-9d4a-0af234a0db11", write, notify)]
-    tightening: u8,
+    tightening: i8,
 }
 
-pub async fn run_ble(controller: impl Controller) {
+#[gatt_service(uuid = bt_hci::uuid::service::BATTERY)]
+struct BatteryService {
+    #[characteristic(uuid = bt_hci::uuid::characteristic::BATTERY_LEVEL, read)]
+    level: u8,
+}
+
+pub async fn run_ble(controller: impl Controller, mut on_command: impl FnMut(i8)) {
     // Using a fixed "random" address can be useful for testing. In real scenarios, one would
     // use e.g. the MAC 6 byte array as the address (how to get that varies by the platform).
     let address: Address = Address::random([0xff, 0x8f, 0x1a, 0x05, 0xe4, 0xff]);
@@ -49,7 +57,7 @@ pub async fn run_ble(controller: impl Controller) {
         loop {
             match advertise("Left Shoe", &mut peripheral, &server).await {
                 Ok(conn) => {
-                    gatt_events_task(&server, &conn).await.ok();
+                    gatt_events_task(&server, &conn, &mut on_command).await.ok();
                 }
                 Err(e) => {
                     let e = defmt::Debug2Format(&e);
@@ -70,8 +78,9 @@ async fn ble_task<C: Controller>(mut runner: Runner<'_, C>) {
     }
 }
 
-async fn gatt_events_task(server: &Server<'_>, conn: &GattConnection<'_, '_>) -> Result<(), Error> {
-    let tightening = server.battery_service.tightening;
+async fn gatt_events_task(server: &Server<'_>, conn: &GattConnection<'_, '_>, mut on_command: impl FnMut(i8)) -> Result<(), Error> {
+    let tightening = server.tighten_service.tightening;
+    let battery_level = server.battery_service.level;
     let reason = loop {
         match conn.next().await {
             GattConnectionEvent::Disconnected { reason } => break reason,
@@ -81,12 +90,20 @@ async fn gatt_events_task(server: &Server<'_>, conn: &GattConnection<'_, '_>) ->
                     GattEvent::Read(event) => {
                         if event.handle() == tightening.handle {
                             let value = server.get(&tightening);
-                            info!("[gatt] Read Event to Level Characteristic: {:?}", value);
+                            info!("[gatt] Read Event to Tightening Characteristic: {:?}", value);
+                        }
+                        else if event.handle() == battery_level.handle {
+                            let value = read_battery();
+                            server.set(&battery_level, &value).unwrap();
+                            info!("[gatt] Read Event to Battery Level Characteristic: {:?}", value);
                         }
                     }
                     GattEvent::Write(event) => {
                         if event.handle() == tightening.handle {
                             info!("[gatt] Write Event to Level Characteristic: {:?}", event.data());
+                            if let Ok(v) = event.value(&tightening) {
+                                on_command(v);
+                            }
                         }
                     }
                 };
@@ -110,11 +127,11 @@ async fn advertise<'values, 'server, C: Controller>(
     peripheral: &mut Peripheral<'values, C>,
     server: &'server Server<'values>,
 ) -> Result<GattConnection<'values, 'server>, BleHostError<C::Error>> {
-    let mut advertiser_data = [0; 31];
+    let mut advertiser_data = [0; 45];
     let len = AdStructure::encode_slice(
         &[
             AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
-            AdStructure::ServiceUuids16(&[[0x0f, 0x18]]),
+            AdStructure::ServiceUuids128(&[[0xde, 0xc7, 0x38, 0x75, 0xa8, 0x30, 0xfe, 0x9e, 0x42, 0x41, 0xd4, 0x82, 0x03, 0xe7, 0x53, 0x19]]),
             AdStructure::CompleteLocalName(name.as_bytes()),
         ],
         &mut advertiser_data[..],
