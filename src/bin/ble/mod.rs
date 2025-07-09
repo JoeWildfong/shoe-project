@@ -1,7 +1,7 @@
-use defmt::{info, warn};
-use uuid::uuid;
 use core::prelude::rust_2024::*;
+use defmt::{info, warn};
 use trouble_host::prelude::*;
+use uuid::uuid;
 
 use crate::read_battery;
 
@@ -21,13 +21,17 @@ struct Server {
     battery_service: BatteryService,
 }
 
-const TIGHTEN_SERVICE: [u8; 16] = uuid!("1953e703-82d4-4142-9efe-30a87538c7de").as_u128().to_le_bytes();
-const TIGHTEN_CHARACTERISTIC: [u8; 16] = uuid!("45803b5a-8847-465b-9d4a-0af234a0db11").as_u128().to_le_bytes();
+const TIGHTEN_SERVICE: [u8; 16] = uuid!("1953e703-82d4-4142-9efe-30a87538c7de")
+    .as_u128()
+    .to_le_bytes();
+const TIGHTEN_CHARACTERISTIC: [u8; 16] = uuid!("45803b5a-8847-465b-9d4a-0af234a0db11")
+    .as_u128()
+    .to_le_bytes();
 
-#[gatt_service(uuid = Uuid::new_long(TIGHTEN_SERVICE))]
+#[gatt_service(uuid = TIGHTEN_SERVICE)]
 struct TightenService {
     /// Tightening amount (-1 = loosening, 0 = stop, 1 = tightening)
-    #[characteristic(uuid = Uuid::new_long(TIGHTEN_CHARACTERISTIC), write, notify)]
+    #[characteristic(uuid = TIGHTEN_CHARACTERISTIC, write, notify)]
     tightening: i8,
 }
 
@@ -43,10 +47,13 @@ pub async fn run_ble(controller: impl Controller, mut on_command: impl FnMut(i8)
     let address: Address = Address::random([0xff, 0x8f, 0x1a, 0x05, 0xe4, 0xff]);
     info!("Our address = {:?}", address);
 
-    let mut resources: HostResources<CONNECTIONS_MAX, L2CAP_CHANNELS_MAX, L2CAP_MTU> = HostResources::new();
+    let mut resources: HostResources<CONNECTIONS_MAX, L2CAP_CHANNELS_MAX, L2CAP_MTU> =
+        HostResources::new();
     let stack = trouble_host::new(controller, &mut resources).set_random_address(address);
     let Host {
-        mut peripheral, runner, ..
+        mut peripheral,
+        runner,
+        ..
     } = stack.build();
 
     info!("Starting advertising and GATT service");
@@ -81,29 +88,43 @@ async fn ble_task<C: Controller>(mut runner: Runner<'_, C>) {
     }
 }
 
-async fn gatt_events_task(server: &Server<'_>, conn: &GattConnection<'_, '_>, mut on_command: impl FnMut(i8)) -> Result<(), Error> {
+async fn gatt_events_task(
+    server: &Server<'_>,
+    conn: &GattConnection<'_, '_>,
+    mut on_command: impl FnMut(i8),
+) -> Result<(), Error> {
     let tightening = server.tighten_service.tightening;
     let battery_level = server.battery_service.level;
     let reason = loop {
         match conn.next().await {
             GattConnectionEvent::Disconnected { reason } => break reason,
-            GattConnectionEvent::Gatt { event: Err(e) } => warn!("[gatt] error processing event: {:?}", e),
+            GattConnectionEvent::Gatt { event: Err(e) } => {
+                warn!("[gatt] error processing event: {:?}", e)
+            }
             GattConnectionEvent::Gatt { event: Ok(event) } => {
                 match &event {
                     GattEvent::Read(event) => {
                         if event.handle() == tightening.handle {
                             let value = server.get(&tightening);
-                            info!("[gatt] Read Event to Tightening Characteristic: {:?}", value);
-                        }
-                        else if event.handle() == battery_level.handle {
+                            info!(
+                                "[gatt] Read Event to Tightening Characteristic: {:?}",
+                                value
+                            );
+                        } else if event.handle() == battery_level.handle {
                             let value = read_battery();
                             server.set(&battery_level, &value).unwrap();
-                            info!("[gatt] Read Event to Battery Level Characteristic: {:?}", value);
+                            info!(
+                                "[gatt] Read Event to Battery Level Characteristic: {:?}",
+                                value
+                            );
                         }
                     }
                     GattEvent::Write(event) => {
                         if event.handle() == tightening.handle {
-                            info!("[gatt] Write Event to Level Characteristic: {:?}", event.data());
+                            info!(
+                                "[gatt] Write Event to Level Characteristic: {:?}",
+                                event.data()
+                            );
                             if let Ok(v) = event.value(&tightening) {
                                 on_command(v);
                             }

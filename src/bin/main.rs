@@ -13,9 +13,9 @@ use esp_hal::ledc::channel::ChannelIFace;
 use esp_hal::ledc::timer::TimerIFace;
 use esp_hal::ledc::{channel, timer, LSGlobalClkSource, LowSpeed};
 use esp_hal::time::Rate;
-use esp_hal::{clock::CpuClock, ledc::Ledc};
 use esp_hal::timer::systimer::SystemTimer;
 use esp_hal::timer::timg::TimerGroup;
+use esp_hal::{clock::CpuClock, ledc::Ledc};
 use esp_wifi::{ble::controller::BleConnector, EspWifiController};
 use l298_motor::in_switch::L298Channel;
 
@@ -42,7 +42,9 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy initialized!");
 
-    spawner.spawn(battery(peripherals.ADC1, peripherals.GPIO4)).unwrap();
+    spawner
+        .spawn(battery(peripherals.ADC1, peripherals.GPIO4))
+        .unwrap();
 
     let timer1 = TimerGroup::new(peripherals.TIMG0);
     let init = esp_wifi::init(
@@ -52,7 +54,9 @@ async fn main(spawner: Spawner) {
     )
     .unwrap();
 
-    spawner.spawn(ble(init, peripherals.BT, &INCOMING_COMMANDS)).unwrap();
+    spawner
+        .spawn(ble(init, peripherals.BT, &INCOMING_COMMANDS))
+        .unwrap();
 
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
@@ -104,7 +108,11 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn ble(init: EspWifiController<'static>, bt: esp_hal::peripherals::BT, signal: &'static Signal<CriticalSectionRawMutex, i8>) {
+async fn ble(
+    init: EspWifiController<'static>,
+    bt: esp_hal::peripherals::BT,
+    signal: &'static Signal<CriticalSectionRawMutex, i8>,
+) {
     let connector = BleConnector::new(&init, bt);
     let controller: ExternalController<_, 20> = ExternalController::new(connector);
     ble::run_ble(controller, |v| signal.signal(v)).await
