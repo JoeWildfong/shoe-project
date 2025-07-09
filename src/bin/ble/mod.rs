@@ -1,6 +1,6 @@
 use defmt::{info, warn};
+use uuid::uuid;
 use core::prelude::rust_2024::*;
-use defmt::panic;
 use trouble_host::prelude::*;
 
 use crate::read_battery;
@@ -21,10 +21,13 @@ struct Server {
     battery_service: BatteryService,
 }
 
-#[gatt_service(uuid = "1953e703-82d4-4142-9efe-30a87538c7de")]
+const TIGHTEN_SERVICE: [u8; 16] = uuid!("1953e703-82d4-4142-9efe-30a87538c7de").as_u128().to_le_bytes();
+const TIGHTEN_CHARACTERISTIC: [u8; 16] = uuid!("45803b5a-8847-465b-9d4a-0af234a0db11").as_u128().to_le_bytes();
+
+#[gatt_service(uuid = Uuid::new_long(TIGHTEN_SERVICE))]
 struct TightenService {
     /// Tightening amount (-1 = loosening, 0 = stop, 1 = tightening)
-    #[characteristic(uuid = "45803b5a-8847-465b-9d4a-0af234a0db11", write, notify)]
+    #[characteristic(uuid = Uuid::new_long(TIGHTEN_CHARACTERISTIC), write, notify)]
     tightening: i8,
 }
 
@@ -127,11 +130,12 @@ async fn advertise<'values, 'server, C: Controller>(
     peripheral: &mut Peripheral<'values, C>,
     server: &'server Server<'values>,
 ) -> Result<GattConnection<'values, 'server>, BleHostError<C::Error>> {
-    let mut advertiser_data = [0; 45];
+    let mut advertiser_data = [0; 47];
     let len = AdStructure::encode_slice(
         &[
             AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
-            AdStructure::ServiceUuids128(&[[0xde, 0xc7, 0x38, 0x75, 0xa8, 0x30, 0xfe, 0x9e, 0x42, 0x41, 0xd4, 0x82, 0x03, 0xe7, 0x53, 0x19]]),
+            AdStructure::ServiceUuids128(&[TIGHTEN_SERVICE]),
+            AdStructure::ServiceUuids16(&[bt_hci::uuid::service::BATTERY.to_le_bytes()]),
             AdStructure::CompleteLocalName(name.as_bytes()),
         ],
         &mut advertiser_data[..],

@@ -1328,6 +1328,7 @@ dependencies = [
  "l298-motor",
  "static_cell",
  "trouble-host",
+ "uuid",
 ]
 
 [[package]]

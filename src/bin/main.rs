@@ -42,6 +42,8 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy initialized!");
 
+    spawner.spawn(battery(peripherals.ADC1, peripherals.GPIO4)).unwrap();
+
     let timer1 = TimerGroup::new(peripherals.TIMG0);
     let init = esp_wifi::init(
         timer1.timer0,
@@ -86,9 +88,9 @@ async fn main(spawner: Spawner) {
     loop {
         let v = INCOMING_COMMANDS.wait().await;
         let percent = match v {
-            -1 => Some(60),
+            -1 => Some(100),
             0 => Some(0),
-            1 => Some(-60),
+            1 => Some(-100),
             a => {
                 info!("ignoring unrecognized command {}", a);
                 None
@@ -110,13 +112,18 @@ async fn ble(init: EspWifiController<'static>, bt: esp_hal::peripherals::BT, sig
 
 #[embassy_executor::task]
 async fn battery(adc: esp_hal::peripherals::ADC1, gpio: esp_hal::gpio::GpioPin<4>) {
+    const MIN_BATTERY: u32 = 2620;
+    const MAX_BATTERY: u32 = 3440;
     let mut config = AdcConfig::new();
     let mut pin = config.enable_pin(gpio, Attenuation::_11dB);
     let mut adc = Adc::new(adc, config).into_async();
     loop {
-        embassy_time::Timer::after_secs(10).await;
-        let reading = adc.read_oneshot(&mut pin).await;
-        BATTERY.store(reading as u8, Ordering::Relaxed);
+        let reading = u32::from(adc.read_oneshot(&mut pin).await);
+        let percent = 100 * (reading - MIN_BATTERY) / (MAX_BATTERY - MIN_BATTERY);
+        let percent = (percent as u8).min(100);
+        BATTERY.store(percent, Ordering::Relaxed);
+        info!("[batt] {}% (raw {})", percent, reading);
+        embassy_time::Timer::after_secs(60).await;
     }
 }
 
