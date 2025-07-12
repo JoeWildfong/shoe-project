@@ -142,6 +142,8 @@ async fn gatt_events_task(
         }
     };
     info!("[gatt] disconnected: {:?}", reason);
+    info!("[gatt] stopping motor due to disconnect");
+    on_command(0);
     Ok(())
 }
 

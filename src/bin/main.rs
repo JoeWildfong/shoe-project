@@ -138,5 +138,17 @@ async fn battery(adc: esp_hal::peripherals::ADC1, gpio: esp_hal::gpio::GpioPin<4
 }
 
 pub fn read_battery() -> u8 {
-    BATTERY.load(Ordering::Relaxed)
+    if cfg!(not(feature = "battery")) {
+        static N: AtomicU8 = AtomicU8::new(1);
+        let v = N.load(Ordering::Relaxed);
+        if v % 5 == 0 {
+            N.store(1, Ordering::Relaxed);
+            42
+        } else {
+            N.store(v + 1, Ordering::Relaxed);
+            100
+        }
+    } else {
+        BATTERY.load(Ordering::Relaxed)
+    }
 }
