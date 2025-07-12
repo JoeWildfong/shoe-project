@@ -8,7 +8,6 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
 use esp_hal::ledc::channel::ChannelIFace;
 use esp_hal::ledc::timer::TimerIFace;
 use esp_hal::ledc::{channel, timer, LSGlobalClkSource, LowSpeed};
@@ -42,6 +41,7 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy initialized!");
 
+    #[cfg(feature = "battery")]
     spawner
         .spawn(battery(peripherals.ADC1, peripherals.GPIO4))
         .unwrap();
@@ -118,8 +118,10 @@ async fn ble(
     ble::run_ble(controller, |v| signal.signal(v)).await
 }
 
+#[cfg(feature = "battery")]
 #[embassy_executor::task]
 async fn battery(adc: esp_hal::peripherals::ADC1, gpio: esp_hal::gpio::GpioPin<4>) {
+    use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
     const MIN_BATTERY: u32 = 2620;
     const MAX_BATTERY: u32 = 3440;
     let mut config = AdcConfig::new();
